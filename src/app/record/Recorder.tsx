@@ -28,7 +28,14 @@ function pickMimeType(candidates: string[]) {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
-type Phase = "idle" | "recording" | "analyzing" | "uploading" | "done" | "error";
+type Phase =
+  | "idle"
+  | "recording"
+  | "analyzing"
+  | "uploading"
+  | "transcribing"
+  | "done"
+  | "error";
 
 export function Recorder({ userId }: { userId: string }) {
   const [context, setContext] = useState<Context>("formal");
@@ -37,6 +44,7 @@ export function Recorder({ userId }: { userId: string }) {
   const [elapsedSec, setElapsedSec] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
   const [cameraFacingPct, setCameraFacingPct] = useState<number | null>(null);
+  const [transcriptText, setTranscriptText] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -126,7 +134,7 @@ export function Recorder({ userId }: { userId: string }) {
 
       if (uploadError) throw uploadError;
 
-      await createRecording({
+      const { id } = await createRecording({
         storagePath,
         durationSec,
         context,
@@ -134,6 +142,15 @@ export function Recorder({ userId }: { userId: string }) {
         cameraFacingPct: cameraFacing,
         gazeEvents,
       });
+
+      setPhase("transcribing");
+      const res = await fetch(`/api/recordings/${id}/transcribe`, {
+        method: "POST",
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Transcription failed");
+      setTranscriptText(body.text);
+
       setPhase("done");
     } catch (e) {
       setPhase("error");
@@ -148,6 +165,7 @@ export function Recorder({ userId }: { userId: string }) {
     setElapsedSec(0);
     setErrorMessage("");
     setCameraFacingPct(null);
+    setTranscriptText(null);
   }
 
   return (
@@ -161,6 +179,11 @@ export function Recorder({ userId }: { userId: string }) {
           {cameraFacingPct !== null && (
             <p className="mt-1 text-sm text-gray-500">
               Facing the camera {cameraFacingPct}% of the time
+            </p>
+          )}
+          {transcriptText && (
+            <p className="mt-4 rounded-md bg-gray-100 p-3 text-left text-sm text-gray-700">
+              {transcriptText}
             </p>
           )}
           <button
@@ -242,6 +265,9 @@ export function Recorder({ userId }: { userId: string }) {
             )}
             {phase === "uploading" && (
               <p className="text-sm text-gray-500">Saving your recording…</p>
+            )}
+            {phase === "transcribing" && (
+              <p className="text-sm text-gray-500">Transcribing…</p>
             )}
             {phase === "error" && (
               <div>
