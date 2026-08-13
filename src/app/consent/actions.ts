@@ -1,8 +1,10 @@
+"use server";
+
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function Home() {
+export async function acceptConsent() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -12,6 +14,11 @@ export default async function Home() {
     redirect("/login");
   }
 
-  const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-  redirect(dbUser?.consentAcceptedAt ? "/record" : "/consent");
+  await prisma.user.upsert({
+    where: { id: user.id },
+    create: { id: user.id, consentAcceptedAt: new Date() },
+    update: { consentAcceptedAt: new Date() },
+  });
+
+  redirect("/record");
 }

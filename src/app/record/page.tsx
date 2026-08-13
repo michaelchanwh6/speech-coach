@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { Recorder } from "./Recorder";
 
-export default async function Home() {
+export default async function RecordPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -13,5 +14,13 @@ export default async function Home() {
   }
 
   const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-  redirect(dbUser?.consentAcceptedAt ? "/record" : "/consent");
+  if (!dbUser?.consentAcceptedAt) {
+    redirect("/consent");
+  }
+
+  return (
+    <main className="flex flex-1 items-center justify-center p-6">
+      <Recorder userId={user.id} />
+    </main>
+  );
 }
