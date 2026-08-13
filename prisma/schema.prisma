@@ -20,19 +20,13 @@ enum RecordingStatus {
   failed
 }
 
-enum FeedbackValence {
-  positive
-  improve
-}
-
 // Mirrors auth.users (Supabase-managed). id must equal the auth.users.id
 // of the corresponding account — created via a DB trigger or on first
 // authenticated request, not by application code minting its own id.
 model User {
-  id                  String   @id @db.Uuid
-  createdAt           DateTime @default(now()) @map("created_at")
-  retentionPreference Int      @default(30) @map("retention_preference") // days raw audio is kept
-  consentAcceptedAt   DateTime? @map("consent_accepted_at")
+  id                String    @id @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  consentAcceptedAt DateTime? @map("consent_accepted_at")
 
   recordings Recording[]
 
@@ -43,14 +37,11 @@ model Recording {
   id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId        String            @map("user_id") @db.Uuid
   createdAt     DateTime          @default(now()) @map("created_at")
-  // Nullable so the 30-day cleanup job can delete the stored media file and
-  // null this out while keeping the transcript + metrics rows for progress.
-  audioUrl      String?           @map("audio_url")
+  audioUrl      String            @map("audio_url")
   hasVideo      Boolean           @default(false) @map("has_video")
   durationSec   Float             @map("duration_sec")
   context       RecordingContext
   status        RecordingStatus   @default(uploaded)
-  audioExpiresAt DateTime?        @map("audio_expires_at")
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   transcript Transcript?

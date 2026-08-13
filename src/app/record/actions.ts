@@ -26,12 +26,6 @@ export async function createRecording(input: {
     redirect("/login");
   }
 
-  const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-  const retentionDays = dbUser?.retentionPreference ?? 30;
-  const audioExpiresAt = new Date(
-    Date.now() + retentionDays * 24 * 60 * 60 * 1000
-  );
-
   const recording = await prisma.recording.create({
     data: {
       userId: user.id,
@@ -40,7 +34,6 @@ export async function createRecording(input: {
       durationSec: input.durationSec,
       context: input.context,
       status: "uploaded",
-      audioExpiresAt,
     },
   });
 

@@ -38,17 +38,9 @@ export default async function ConsentPage() {
             third party for this analysis.
           </li>
           <li>
-            We keep the raw audio and video for 30 days after processing,
-            then delete it automatically. You can shorten that window or
-            delete a recording sooner from your account.
-          </li>
-          <li>
-            Your transcript and metrics (not the audio/video itself) are
-            kept longer so you can track progress across sessions.
-          </li>
-          <li>
-            You can delete your account and everything tied to it at any
-            time.
+            We store the raw audio and video so you can review your session.
+            You can delete any recording — and its stored media — at any time
+            from its results page.
           </li>
         </ul>
         <form action={acceptConsent} className="mt-6">

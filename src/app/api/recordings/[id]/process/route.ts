@@ -31,12 +31,6 @@ export async function POST(
   if (!recording || recording.userId !== user.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (!recording.audioUrl) {
-    return NextResponse.json(
-      { error: "Recording media is no longer available" },
-      { status: 410 }
-    );
-  }
 
   await prisma.recording.update({
     where: { id },

@@ -20,9 +20,7 @@ export async function deleteRecording(id: string) {
     redirect("/record");
   }
 
-  if (recording.audioUrl) {
-    await supabase.storage.from("recordings").remove([recording.audioUrl]);
-  }
+  await supabase.storage.from("recordings").remove([recording.audioUrl]);
   await prisma.recording.delete({ where: { id } });
 
   redirect("/record");

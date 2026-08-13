@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Speech Coach
 
-## Getting Started
+An AI public-speaking and pitch-practice coach. You speak in front of your
+camera; it records voice and video, then gives you feedback after the session:
 
-First, run the development server:
+- **Vocal analysis** — speaking pace (WPM vs. a target range for your context),
+  filler words, and awkward/rushed pauses, from a Whisper transcript.
+- **On-device vision** — how much you faced the camera, positive expression
+  (smile), and hand-gesture activity. Video is analyzed in your browser and is
+  never uploaded for this analysis.
+- **Coaching** — a warm, specific summary with your strengths and one or two
+  things to focus on next, written by a Claude model via the Vercel AI Gateway.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Stack
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Next.js (App Router) · Supabase (auth + Postgres + storage) · Prisma ·
+OpenAI Whisper · Vercel AI Gateway · MediaPipe Tasks Vision.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Install:**
+   ```bash
+   npm install
+   ```
+2. **Configure env:** copy `.env.example` to `.env.local` and fill in the values.
+   You need a Supabase project (URL + publishable key + a pooled/direct
+   `DATABASE_URL`/`DIRECT_URL`), an `OPENAI_API_KEY`, and an
+   `AI_GATEWAY_API_KEY`.
+3. **In Supabase, create a Storage bucket named `recordings`** (private).
+4. **Push the schema:**
+   ```bash
+   npm run db:push
+   ```
+5. **Run:**
+   ```bash
+   npm run dev
+   ```
+   Open http://localhost:3000, create an account, accept the consent notice,
+   and record. Recording with video on is optional — tick the box to include
+   the on-device vision signals.
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+- `npm run dev` — start the dev server
+- `npm run build` / `npm start` — production build / serve
+- `npm test` — unit tests (audio-metrics logic, via Vitest)
+- `npm run db:push` — apply the Prisma schema to your database
+- `npm run db:studio` — browse the database
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Works on desktop or phone. Recording uses the browser `MediaRecorder` API;
+  Chrome/Edge/Firefox are best-supported (Safari is shakier).
+- The design and scope are documented in
+  [`docs/superpowers/specs/`](docs/superpowers/specs/) and
+  [`ARCHITECTURE.md`](ARCHITECTURE.md).
