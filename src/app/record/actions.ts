@@ -12,6 +12,9 @@ export async function createRecording(input: {
   context: RecordingContext;
   hasVideo: boolean;
   cameraFacingPct?: number;
+  smilePct?: number;
+  handsVisiblePct?: number;
+  gestureActivity?: number;
   gazeEvents?: { start: number; end: number; facing: boolean }[];
 }) {
   const supabase = await createClient();
@@ -46,6 +49,9 @@ export async function createRecording(input: {
       data: {
         recordingId: recording.id,
         cameraFacingPct: input.cameraFacingPct,
+        smilePct: input.smilePct,
+        handsVisiblePct: input.handsVisiblePct,
+        gestureActivity: input.gestureActivity,
         gazeEvents: input.gazeEvents ?? [],
       },
     });

@@ -43,7 +43,9 @@ model Recording {
   id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId        String            @map("user_id") @db.Uuid
   createdAt     DateTime          @default(now()) @map("created_at")
-  audioUrl      String            @map("audio_url")
+  // Nullable so the 30-day cleanup job can delete the stored media file and
+  // null this out while keeping the transcript + metrics rows for progress.
+  audioUrl      String?           @map("audio_url")
   hasVideo      Boolean           @default(false) @map("has_video")
   durationSec   Float             @map("duration_sec")
   context       RecordingContext
@@ -83,6 +85,12 @@ model Transcript {
 // cameraFacingPct: % of speech duration the speaker's head was oriented
 //   toward the camera (a head-pose proxy, not true gaze/eye-tracking).
 // gazeEvents: [{ start, end, facing: boolean }]
+// smilePct: % of sampled frames the speaker was smiling (FaceLandmarker
+//   blendshapes — a positive-affect proxy, not emotion classification).
+// handsVisiblePct: % of sampled frames at least one hand was detected.
+// gestureActivity: 0-1 score of hand movement between frames (0 = still,
+//   1 = very animated). All three are computed on-device; video never leaves
+//   the browser.
 model Metrics {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   recordingId     String   @unique @map("recording_id") @db.Uuid
@@ -94,6 +102,9 @@ model Metrics {
   rushedFlag      Boolean? @map("rushed_flag")
   cameraFacingPct Float?   @map("camera_facing_pct")
   gazeEvents      Json?    @map("gaze_events")
+  smilePct        Float?   @map("smile_pct")
+  handsVisiblePct Float?   @map("hands_visible_pct")
+  gestureActivity Float?   @map("gesture_activity")
 
   recording Recording @relation(fields: [recordingId], references: [id], onDelete: Cascade)
 

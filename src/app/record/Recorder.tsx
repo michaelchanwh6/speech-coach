@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { createRecording } from "./actions";
-import { analyzeCameraFacing } from "@/lib/cameraFacing";
+import { analyzeVideo } from "@/lib/vision/analyzeVideo";
 
 const CONTEXTS = [
   { value: "conversational", label: "Conversational" },
@@ -38,13 +39,12 @@ type Phase =
   | "error";
 
 export function Recorder({ userId }: { userId: string }) {
+  const router = useRouter();
   const [context, setContext] = useState<Context>("formal");
   const [useVideo, setUseVideo] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
-  const [cameraFacingPct, setCameraFacingPct] = useState<number | null>(null);
-  const [transcriptText, setTranscriptText] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -112,15 +112,13 @@ export function Recorder({ userId }: { userId: string }) {
     const blob = new Blob(chunksRef.current, { type: mimeType });
 
     try {
-      let cameraFacing: number | undefined;
-      let gazeEvents: { start: number; end: number; facing: boolean }[] | undefined;
+      let vision:
+        | Awaited<ReturnType<typeof analyzeVideo>>
+        | undefined;
 
       if (useVideo) {
         setPhase("analyzing");
-        const result = await analyzeCameraFacing(blob);
-        cameraFacing = result.cameraFacingPct;
-        gazeEvents = result.gazeEvents;
-        setCameraFacingPct(result.cameraFacingPct);
+        vision = await analyzeVideo(blob);
       }
 
       setPhase("uploading");
@@ -139,19 +137,22 @@ export function Recorder({ userId }: { userId: string }) {
         durationSec,
         context,
         hasVideo: useVideo,
-        cameraFacingPct: cameraFacing,
-        gazeEvents,
+        cameraFacingPct: vision?.cameraFacingPct,
+        smilePct: vision?.smilePct,
+        handsVisiblePct: vision?.handsVisiblePct,
+        gestureActivity: vision?.gestureActivity,
+        gazeEvents: vision?.gazeEvents,
       });
 
       setPhase("transcribing");
-      const res = await fetch(`/api/recordings/${id}/transcribe`, {
+      const res = await fetch(`/api/recordings/${id}/process`, {
         method: "POST",
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "Transcription failed");
-      setTranscriptText(body.text);
+      if (!res.ok) throw new Error(body.error ?? "Processing failed");
 
       setPhase("done");
+      router.push(`/recordings/${id}`);
     } catch (e) {
       setPhase("error");
       setErrorMessage(
@@ -164,8 +165,6 @@ export function Recorder({ userId }: { userId: string }) {
     setPhase("idle");
     setElapsedSec(0);
     setErrorMessage("");
-    setCameraFacingPct(null);
-    setTranscriptText(null);
   }
 
   return (
@@ -173,25 +172,7 @@ export function Recorder({ userId }: { userId: string }) {
       {phase === "done" ? (
         <>
           <h1 className="text-xl font-semibold">Recording saved</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {Math.round(elapsedSec)}s, {CONTEXTS.find((c) => c.value === context)?.label}
-          </p>
-          {cameraFacingPct !== null && (
-            <p className="mt-1 text-sm text-gray-500">
-              Facing the camera {cameraFacingPct}% of the time
-            </p>
-          )}
-          {transcriptText && (
-            <p className="mt-4 rounded-md bg-gray-100 p-3 text-left text-sm text-gray-700">
-              {transcriptText}
-            </p>
-          )}
-          <button
-            onClick={reset}
-            className="mt-6 rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
-          >
-            Record another
-          </button>
+          <p className="mt-1 text-sm text-gray-500">Opening your results…</p>
         </>
       ) : (
         <>
@@ -267,7 +248,9 @@ export function Recorder({ userId }: { userId: string }) {
               <p className="text-sm text-gray-500">Saving your recording…</p>
             )}
             {phase === "transcribing" && (
-              <p className="text-sm text-gray-500">Transcribing…</p>
+              <p className="text-sm text-gray-500">
+                Transcribing and coaching your delivery…
+              </p>
             )}
             {phase === "error" && (
               <div>
