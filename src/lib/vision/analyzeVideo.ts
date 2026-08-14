@@ -39,6 +39,12 @@ let landmarkersPromise: Promise<{
   hand: HandLandmarker;
 }> | null = null;
 
+// The landmarkers are reused across recordings, and in VIDEO mode they require
+// strictly increasing timestamps for their entire lifetime. Real video time
+// restarts at 0 each recording, which the detectors reject — so we feed them a
+// monotonic counter that only ever moves forward.
+let detectTimestamp = 0;
+
 function getLandmarkers() {
   if (!landmarkersPromise) {
     landmarkersPromise = (async () => {
@@ -129,8 +135,11 @@ export async function analyzeVideo(blob: Blob): Promise<VideoAnalysis> {
         video.onseeked = () => resolve();
       });
 
-      const faceResult = face.detectForVideo(video, t);
-      const handResult = hand.detectForVideo(video, t);
+      // Monotonic timestamp for the detectors (must always increase across the
+      // singleton's lifetime); `t` is still used for seeking + event timing.
+      detectTimestamp += SAMPLE_INTERVAL_MS;
+      const faceResult = face.detectForVideo(video, detectTimestamp);
+      const handResult = hand.detectForVideo(video, detectTimestamp);
 
       const faceLandmarks = faceResult.faceLandmarks[0];
       const blendshapes = faceResult.faceBlendshapes[0]?.categories ?? [];
