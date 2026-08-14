@@ -5,9 +5,9 @@ import { analyzeVideo, type VideoAnalysis } from "@/lib/vision/analyzeVideo";
 import { WPM_TARGETS, type RecordingContext } from "@/lib/analysis/audioMetrics";
 
 const CONTEXTS = [
-  { value: "conversational", label: "Conversational" },
-  { value: "formal", label: "Formal presentation" },
-  { value: "interview", label: "Interview" },
+  { value: "conversational", label: "Conversational", short: "Casual" },
+  { value: "formal", label: "Formal presentation", short: "Formal" },
+  { value: "interview", label: "Interview", short: "Interview" },
 ] as const;
 
 const CONTEXT_LABELS: Record<RecordingContext, string> = {
@@ -48,6 +48,8 @@ type AnalyzeResult = {
   feedback: { summary: string; strengths: string[]; focusAreas: string[] } | null;
 };
 
+type Tone = "good" | "warn" | "neutral";
+
 function gestureLabel(activity: number): string {
   if (activity < 0.33) return "Reserved";
   if (activity < 0.66) return "Moderate";
@@ -56,28 +58,109 @@ function gestureLabel(activity: number): string {
 
 function paceNote(wpm: number, ctx: RecordingContext): string {
   const { min, max } = WPM_TARGETS[ctx];
-  if (wpm < min) return `Below the ${min}–${max} target — room to pick up energy`;
-  if (wpm > max) return `Above the ${min}–${max} target — try slowing down`;
-  return `Right in the ${min}–${max} target range`;
+  if (wpm < min) return `Below the ${min}–${max} target range`;
+  if (wpm > max) return `Above the ${min}–${max} target range`;
+  return `Inside the ${min}–${max} target range`;
+}
+
+function paceStatus(wpm: number, ctx: RecordingContext): { text: string; tone: Tone } {
+  const { min, max } = WPM_TARGETS[ctx];
+  if (wpm < min) return { text: "Slow", tone: "warn" };
+  if (wpm > max) return { text: "Fast", tone: "warn" };
+  return { text: "On target", tone: "good" };
+}
+
+// ---- small presentational pieces ----
+
+function StatPill({ text, tone }: { text: string; tone: Tone }) {
+  const cls =
+    tone === "good"
+      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+      : tone === "warn"
+        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+        : "bg-surface-2 text-muted";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}
+    >
+      {text}
+    </span>
+  );
+}
+
+function Bar({ value }: { value: number }) {
+  return (
+    <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+      <div
+        className="h-full rounded-full bg-gradient-to-r from-accent to-accent-2"
+        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+      />
+    </div>
+  );
 }
 
 function MetricCard({
   label,
   value,
   note,
+  pill,
+  bar,
 }: {
   label: string;
   value: string;
   note?: string;
+  pill?: { text: string; tone: Tone };
+  bar?: number;
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 p-4 text-left">
-      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-        {label}
+    <div className="rounded-2xl border border-line bg-surface p-4 text-left shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          {label}
+        </p>
+        {pill && <StatPill text={pill.text} tone={pill.tone} />}
+      </div>
+      <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
+        {value}
       </p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
-      {note && <p className="mt-1 text-xs text-gray-500">{note}</p>}
+      {bar !== undefined && <Bar value={bar} />}
+      {note && <p className="mt-1.5 text-xs text-muted">{note}</p>}
     </div>
+  );
+}
+
+function Switch({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+        checked ? "bg-accent" : "bg-surface-2 border border-line"
+      } ${disabled ? "opacity-50" : "cursor-pointer"}`}
+    >
+      <span
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
+          checked ? "left-[22px]" : "left-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+function Spinner() {
+  return (
+    <span className="h-7 w-7 animate-spin rounded-full border-2 border-line border-t-accent" />
   );
 }
 
@@ -197,77 +280,124 @@ export function Coach() {
     setVision(null);
   }
 
+  const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+  const ss = String(elapsedSec % 60).padStart(2, "0");
+
   // ---- Results view ----
   if (phase === "done" && result) {
     const m = result.metrics;
+    const pace = paceStatus(m.wpmAvg, result.context);
     return (
       <div className="mx-auto w-full max-w-2xl">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold">Your session</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              {Math.round(elapsedSec)}s · {CONTEXT_LABELS[result.context]}
-            </p>
+            <h1 className="text-2xl font-semibold tracking-tight">Your session</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">
+                {Math.round(elapsedSec)}s
+              </span>
+              <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">
+                {CONTEXT_LABELS[result.context]}
+              </span>
+              {vision && (
+                <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">
+                  video
+                </span>
+              )}
+            </div>
           </div>
           <button
             onClick={reset}
-            className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
+            className="rounded-full bg-gradient-to-r from-accent to-accent-2 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 active:scale-[.99]"
           >
             Record another
           </button>
         </div>
 
         {result.feedback ? (
-          <section className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-5">
-            <p className="text-base">{result.feedback.summary}</p>
-            {result.feedback.strengths.length > 0 && (
-              <div className="mt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                  What worked
-                </p>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-gray-700">
-                  {result.feedback.strengths.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
+          <section className="mt-6 overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+            <div className="border-b border-line bg-gradient-to-br from-accent/[0.08] to-accent-2/[0.08] px-5 py-5 sm:px-6">
+              <div className="flex items-center gap-2 text-accent">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M12 2l1.9 5.1L19 9l-5.1 1.9L12 16l-1.9-5.1L5 9l5.1-1.9L12 2z" />
+                </svg>
+                <span className="text-xs font-semibold uppercase tracking-wider">
+                  Your coaching
+                </span>
               </div>
-            )}
-            {result.feedback.focusAreas.length > 0 && (
-              <div className="mt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                  Focus next time
-                </p>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-gray-700">
-                  {result.feedback.focusAreas.map((f, i) => (
-                    <li key={i}>{f}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+              <p className="mt-2.5 text-[15px] leading-relaxed sm:text-base">
+                {result.feedback.summary}
+              </p>
+            </div>
+            <div className="grid gap-6 p-5 sm:grid-cols-2 sm:px-6">
+              {result.feedback.strengths.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    What worked
+                  </p>
+                  <ul className="mt-2.5 space-y-2 text-sm text-fg/90">
+                    {result.feedback.strengths.map((s, i) => (
+                      <li key={i} className="flex gap-2.5">
+                        <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                        <span className="leading-relaxed">{s}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {result.feedback.focusAreas.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    Focus next time
+                  </p>
+                  <ul className="mt-2.5 space-y-2 text-sm text-fg/90">
+                    {result.feedback.focusAreas.map((f, i) => (
+                      <li key={i} className="flex gap-2.5">
+                        <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                        <span className="leading-relaxed">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </section>
         ) : (
-          <p className="mt-6 rounded-lg border border-gray-200 p-4 text-sm text-gray-500">
+          <p className="mt-6 rounded-2xl border border-line bg-surface p-4 text-sm text-muted">
             Couldn&apos;t generate coaching feedback this time, but your metrics
             are below.
           </p>
         )}
 
-        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <section className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <MetricCard
             label="Pace"
             value={`${m.wpmAvg} WPM`}
             note={paceNote(m.wpmAvg, result.context)}
+            pill={pace}
           />
           <MetricCard
             label="Filler words"
             value={`${m.fillerCount}`}
             note={m.fillerExamples.length ? m.fillerExamples.join(", ") : "None caught"}
+            pill={
+              m.fillerCount === 0
+                ? { text: "Clean", tone: "good" }
+                : m.fillerCount >= 6
+                  ? { text: "High", tone: "warn" }
+                  : undefined
+            }
           />
           <MetricCard
             label="Awkward pauses"
             value={`${m.awkwardPauseCount}`}
-            note={
-              m.rushedFlag ? "Delivery felt rushed" : "Pauses over 2.5s"
+            note={m.rushedFlag ? "Delivery felt rushed" : "Pauses over 2.5s"}
+            pill={
+              m.rushedFlag
+                ? { text: "Rushed", tone: "warn" }
+                : m.awkwardPauseCount === 0
+                  ? { text: "Smooth", tone: "good" }
+                  : undefined
             }
           />
           {vision && (
@@ -275,11 +405,13 @@ export function Coach() {
               <MetricCard
                 label="Facing camera"
                 value={`${vision.cameraFacingPct}%`}
+                bar={vision.cameraFacingPct}
                 note="Of the time"
               />
               <MetricCard
                 label="Positive expression"
                 value={`${vision.smilePct}%`}
+                bar={vision.smilePct}
                 note="Smiling / warm"
               />
               <MetricCard
@@ -292,11 +424,25 @@ export function Coach() {
         </section>
 
         {result.transcript && (
-          <details className="mt-6 rounded-lg border border-gray-200 p-4">
-            <summary className="cursor-pointer text-sm font-medium">
+          <details className="group mt-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium [&::-webkit-details-marker]:hidden">
               Transcript
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-muted transition-transform group-open:rotate-180"
+                aria-hidden
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
             </summary>
-            <p className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted">
               {result.transcript}
             </p>
           </details>
@@ -305,94 +451,134 @@ export function Coach() {
     );
   }
 
-  // ---- Recording / setup view ----
+  // ---- Setup / recording view ----
   return (
-    <div className="w-full max-w-sm text-center">
-      <h1 className="text-xl font-semibold">Practice your speech</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Record, and get instant coaching on your delivery.
-      </p>
+    <div className="w-full max-w-md">
+      <div className="text-center">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-[28px]">
+          Practice your speech
+        </h1>
+        <p className="mx-auto mt-2 max-w-xs text-sm text-muted">
+          Record a take and get instant, specific coaching on your delivery.
+        </p>
+      </div>
 
-      <label className="mt-6 block text-left text-sm font-medium">
-        Speaking context
-      </label>
-      <select
-        value={context}
-        onChange={(e) => setContext(e.target.value as RecordingContext)}
-        disabled={phase !== "idle"}
-        className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:opacity-50"
-      >
-        {CONTEXTS.map((c) => (
-          <option key={c.value} value={c.value}>
-            {c.label}
-          </option>
-        ))}
-      </select>
-
-      <label className="mt-4 flex items-center gap-2 text-left text-sm">
-        <input
-          type="checkbox"
-          checked={useVideo}
-          onChange={(e) => setUseVideo(e.target.checked)}
-          disabled={phase !== "idle"}
-        />
-        Record video too — analyzes expression &amp; gestures on your device
-      </label>
-
-      {useVideo && (
-        <video
-          ref={previewRef}
-          autoPlay
-          muted
-          playsInline
-          className="mt-4 aspect-video w-full rounded-md bg-black"
-        />
-      )}
-
-      <div className="mt-8">
-        {phase === "recording" && (
-          <p className="mb-3 text-2xl font-mono tabular-nums">
-            {String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:
-            {String(elapsedSec % 60).padStart(2, "0")}
-          </p>
-        )}
-
-        {phase === "idle" && (
-          <button
-            onClick={startRecording}
-            className="rounded-full bg-red-600 px-6 py-3 text-sm font-medium text-white"
-          >
-            ● Start recording
-          </button>
-        )}
-        {phase === "recording" && (
-          <button
-            onClick={stopRecording}
-            className="rounded-full bg-black px-6 py-3 text-sm font-medium text-white"
-          >
-            ■ Stop
-          </button>
-        )}
-        {phase === "analyzing" && (
-          <p className="text-sm text-gray-500">Analyzing video on your device…</p>
-        )}
-        {phase === "transcribing" && (
-          <p className="text-sm text-gray-500">
-            Transcribing and coaching your delivery…
-          </p>
-        )}
-        {phase === "error" && (
-          <div>
-            <p className="text-sm text-red-600">{errorMessage}</p>
+      <div className="mt-7 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+          Speaking context
+        </p>
+        <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1">
+          {CONTEXTS.map((c) => (
             <button
-              onClick={reset}
-              className="mt-4 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium"
+              key={c.value}
+              onClick={() => setContext(c.value)}
+              disabled={phase !== "idle"}
+              className={`rounded-lg px-2 py-2 text-xs font-medium transition ${
+                context === c.value
+                  ? "bg-surface text-fg shadow-sm"
+                  : "text-muted hover:text-fg"
+              } ${phase !== "idle" ? "cursor-default opacity-60" : ""}`}
             >
-              Try again
+              {c.short}
             </button>
+          ))}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-line px-3.5 py-3">
+          <span className="text-left">
+            <span className="block text-sm font-medium">Record video</span>
+            <span className="block text-xs text-muted">
+              Analyzes expression &amp; gestures on-device
+            </span>
+          </span>
+          <Switch
+            checked={useVideo}
+            onChange={setUseVideo}
+            disabled={phase !== "idle"}
+          />
+        </div>
+
+        {useVideo && (
+          <div className="relative mt-4 aspect-video overflow-hidden rounded-2xl bg-black ring-1 ring-line">
+            <video
+              ref={previewRef}
+              autoPlay
+              muted
+              playsInline
+              className="h-full w-full object-cover"
+            />
+            {phase === "recording" && (
+              <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
+                <span className="h-2 w-2 rounded-full bg-red-500" />
+                REC
+              </span>
+            )}
           </div>
         )}
+
+        <div className="mt-6">
+          {phase === "idle" && (
+            <button
+              onClick={startRecording}
+              className="flex w-full items-center justify-center gap-2.5 rounded-full bg-gradient-to-r from-accent to-accent-2 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-accent/25 transition hover:brightness-110 active:scale-[.99]"
+            >
+              <span className="h-2.5 w-2.5 rounded-full bg-white/95" />
+              Start recording
+            </button>
+          )}
+
+          {phase === "recording" && (
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+                </span>
+                Recording
+              </div>
+              <p className="font-mono text-5xl font-semibold tabular-nums tracking-tight">
+                {mm}:{ss}
+              </p>
+              <button
+                onClick={stopRecording}
+                className="flex items-center gap-2 rounded-full bg-fg px-6 py-3 text-sm font-semibold text-bg transition hover:opacity-90 active:scale-[.99]"
+              >
+                <span className="h-2.5 w-2.5 rounded-sm bg-current" />
+                Stop
+              </button>
+            </div>
+          )}
+
+          {(phase === "analyzing" || phase === "transcribing") && (
+            <div className="flex flex-col items-center gap-3 py-2">
+              <Spinner />
+              <p className="text-sm text-muted">
+                {phase === "analyzing"
+                  ? "Analyzing video on your device…"
+                  : "Transcribing & coaching your delivery…"}
+              </p>
+            </div>
+          )}
+
+          {phase === "error" && (
+            <div className="rounded-xl border border-red-500/25 bg-red-500/[0.08] p-3.5 text-center">
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                {errorMessage}
+              </p>
+              <button
+                onClick={reset}
+                className="mt-3 rounded-lg border border-line px-4 py-2 text-sm font-medium transition hover:bg-surface-2"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      <p className="mt-4 text-center text-xs text-muted">
+        Best in Chrome, Edge, or Firefox.
+      </p>
     </div>
   );
 }
