@@ -29,6 +29,22 @@ function pickMimeType(candidates: string[]) {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
+// The API returns JSON on success, but platform-level failures (e.g. a body
+// that's too large) come back as plain text — so never assume JSON here.
+async function readError(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed?.error) return parsed.error as string;
+  } catch {
+    // not JSON — fall through to a friendly, status-based message
+  }
+  if (res.status === 413) {
+    return "That recording was too large to upload — try a shorter take.";
+  }
+  return `Analysis failed (${res.status || "network error"}). Please try again.`;
+}
+
 type Phase =
   | "idle"
   | "recording"
@@ -175,8 +191,14 @@ export function Coach() {
   const [result, setResult] = useState<AnalyzeResult | null>(null);
   const [vision, setVision] = useState<VideoAnalysis | null>(null);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const videoChunksRef = useRef<Blob[]>([]);
+  const audioMimeRef = useRef<string>("audio/webm");
+  const videoMimeRef = useRef<string>("video/webm");
+  const streamsRef = useRef<MediaStream[]>([]);
+  const pendingStopsRef = useRef(0);
   const startTimeRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previewRef = useRef<HTMLVideoElement | null>(null);
@@ -192,25 +214,57 @@ export function Coach() {
         previewRef.current.srcObject = stream;
       }
 
-      const mimeType = pickMimeType(useVideo ? AUDIO_VIDEO_MIME : AUDIO_ONLY_MIME);
-      if (!mimeType) {
+      const audioMime = pickMimeType(AUDIO_ONLY_MIME);
+      if (!audioMime) {
         setPhase("error");
         setErrorMessage("This browser doesn't support recording that way.");
+        stream.getTracks().forEach((t) => t.stop());
         return;
       }
 
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+      // Dedicated audio-only recorder — this small blob is the only thing we
+      // upload (for transcription). Cloning the track keeps it independent of
+      // the video recorder below.
+      const audioStream = new MediaStream([stream.getAudioTracks()[0].clone()]);
+      const audioRecorder = new MediaRecorder(audioStream, {
+        mimeType: audioMime,
+      });
+      audioMimeRef.current = audioMime;
+      audioChunksRef.current = [];
+      audioRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        void handleFinish(mimeType);
-      };
+      audioRecorder.onstop = onRecorderStopped;
+      audioRecorderRef.current = audioRecorder;
 
-      mediaRecorderRef.current = recorder;
-      recorder.start();
+      const recorders: MediaRecorder[] = [audioRecorder];
+      const streams: MediaStream[] = [stream, audioStream];
+
+      if (useVideo) {
+        const videoMime = pickMimeType(AUDIO_VIDEO_MIME);
+        if (!videoMime) {
+          setPhase("error");
+          setErrorMessage("This browser doesn't support video recording.");
+          streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+          return;
+        }
+        // Video recorder feeds on-device vision analysis only — never uploaded.
+        const videoRecorder = new MediaRecorder(stream, { mimeType: videoMime });
+        videoMimeRef.current = videoMime;
+        videoChunksRef.current = [];
+        videoRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) videoChunksRef.current.push(e.data);
+        };
+        videoRecorder.onstop = onRecorderStopped;
+        videoRecorderRef.current = videoRecorder;
+        recorders.push(videoRecorder);
+      } else {
+        videoRecorderRef.current = null;
+      }
+
+      streamsRef.current = streams;
+      pendingStopsRef.current = recorders.length;
+      recorders.forEach((r) => r.start());
       // eslint-disable-next-line react-hooks/purity -- event handler, not render
       startTimeRef.current = Date.now();
       setElapsedSec(0);
@@ -226,26 +280,41 @@ export function Coach() {
     }
   }
 
-  function stopRecording() {
-    if (timerRef.current) clearInterval(timerRef.current);
-    mediaRecorderRef.current?.stop();
+  // Both recorders stop independently; wait for the last one before analyzing.
+  function onRecorderStopped() {
+    pendingStopsRef.current -= 1;
+    if (pendingStopsRef.current > 0) return;
+    streamsRef.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    streamsRef.current = [];
+    void handleFinish();
   }
 
-  async function handleFinish(mimeType: string) {
+  function stopRecording() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    audioRecorderRef.current?.stop();
+    videoRecorderRef.current?.stop();
+  }
+
+  async function handleFinish() {
     const durationSec = (Date.now() - startTimeRef.current) / 1000;
-    const blob = new Blob(chunksRef.current, { type: mimeType });
+    const audioBlob = new Blob(audioChunksRef.current, {
+      type: audioMimeRef.current,
+    });
 
     try {
       let visionResult: VideoAnalysis | undefined;
       if (useVideo) {
+        const videoBlob = new Blob(videoChunksRef.current, {
+          type: videoMimeRef.current,
+        });
         setPhase("analyzing");
-        visionResult = await analyzeVideo(blob);
+        visionResult = await analyzeVideo(videoBlob);
         setVision(visionResult);
       }
 
       setPhase("transcribing");
       const form = new FormData();
-      form.append("audio", blob, "speech.webm");
+      form.append("audio", audioBlob, "speech.webm");
       form.append("context", context);
       form.append("durationSec", String(durationSec));
       if (visionResult) {
@@ -261,10 +330,9 @@ export function Coach() {
       }
 
       const res = await fetch("/api/analyze", { method: "POST", body: form });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "Analysis failed");
+      if (!res.ok) throw new Error(await readError(res));
 
-      setResult(body as AnalyzeResult);
+      setResult((await res.json()) as AnalyzeResult);
       setPhase("done");
     } catch (e) {
       setPhase("error");
