@@ -8,12 +8,14 @@ const CONTEXTS = [
   { value: "conversational", label: "Conversational", short: "Casual" },
   { value: "formal", label: "Formal presentation", short: "Formal" },
   { value: "interview", label: "Interview", short: "Interview" },
+  { value: "pitch", label: "Investor pitch", short: "Pitch" },
 ] as const;
 
 const CONTEXT_LABELS: Record<RecordingContext, string> = {
   conversational: "Conversational",
   formal: "Formal presentation",
   interview: "Interview",
+  pitch: "Investor pitch",
 };
 
 const AUDIO_ONLY_MIME = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
@@ -467,7 +469,7 @@ export function Coach() {
         <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
           Speaking context
         </p>
-        <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1">
+        <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1 sm:grid-cols-4">
           {CONTEXTS.map((c) => (
             <button
               key={c.value}

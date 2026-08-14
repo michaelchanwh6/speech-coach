@@ -14,6 +14,13 @@ import { WPM_TARGETS } from "./audioMetrics";
 // change. Defaults to a current Claude model known to the AI Gateway.
 const FEEDBACK_MODEL = process.env.FEEDBACK_MODEL ?? "anthropic/claude-sonnet-4.5";
 
+const CONTEXT_LABEL: Record<RecordingContext, string> = {
+  conversational: "conversational speaking",
+  formal: "a formal presentation",
+  interview: "an interview",
+  pitch: "an investor pitch",
+};
+
 const feedbackSchema = z.object({
   summary: z
     .string()
@@ -63,12 +70,13 @@ function buildPrompt(input: FeedbackInput): string {
   const target = WPM_TARGETS[input.context];
   const lines: string[] = [];
 
-  lines.push(`Speaking context: ${input.context}`);
+  const contextLabel = CONTEXT_LABEL[input.context];
+  lines.push(`Speaking context: ${contextLabel}`);
   lines.push(`Duration: ${Math.round(input.durationSec)}s`);
 
   if (input.wpmAvg != null) {
     lines.push(
-      `Average pace: ${input.wpmAvg} WPM (target for ${input.context}: ${target.min}-${target.max} WPM)`
+      `Average pace: ${input.wpmAvg} WPM (target for ${contextLabel}: ${target.min}-${target.max} WPM)`
     );
   }
   if (input.fillerCount != null) {

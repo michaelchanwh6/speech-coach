@@ -4,7 +4,11 @@
 
 export type Word = { word: string; start: number; end: number };
 
-export type RecordingContext = "conversational" | "formal" | "interview";
+export type RecordingContext =
+  | "conversational"
+  | "formal"
+  | "interview"
+  | "pitch";
 
 export type WpmWindow = { start: number; end: number; wpm: number };
 export type FillerEvent = { word: string; start: number; end: number };
@@ -32,6 +36,8 @@ export const WPM_TARGETS: Record<
   conversational: { min: 120, max: 150 },
   formal: { min: 130, max: 160 },
   interview: { min: 110, max: 140 },
+  // Investor pitches reward energy, but too fast and the ask gets lost.
+  pitch: { min: 135, max: 165 },
 };
 
 const WINDOW_SEC = 10;

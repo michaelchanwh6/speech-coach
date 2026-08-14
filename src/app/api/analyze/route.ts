@@ -12,7 +12,7 @@ import { generateFeedback } from "@/lib/analysis/feedback";
 // pace/filler/pause metrics, and generate coaching feedback. Nothing is stored —
 // the audio is processed in-memory and discarded when the request ends.
 
-const CONTEXTS = new Set(["conversational", "formal", "interview"]);
+const CONTEXTS = new Set(["conversational", "formal", "interview", "pitch"]);
 
 type Vision = {
   cameraFacingPct?: number | null;
